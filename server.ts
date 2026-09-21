@@ -13,6 +13,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  getDocFromServer,
   setDoc,
   deleteDoc,
   Firestore,
@@ -964,6 +965,47 @@ async function startServer() {
   // Health check
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", app: "Z-messenger", time: Date.now() });
+  });
+
+  // Database status and live connectivity verification
+  app.get("/api/db-status", async (_req, res) => {
+    if (!firestoreDb) {
+      res.status(503).json({
+        connected: false,
+        error: "Firestore database not initialized or configuration missing",
+      });
+      return;
+    }
+
+    try {
+      const testDocRef = doc(firestoreDb, "_system", "connection_test");
+      await setDoc(testDocRef, {
+        lastChecked: Date.now(),
+        status: "healthy",
+      });
+      const snapshot = await getDocFromServer(testDocRef);
+
+      res.json({
+        connected: true,
+        database: "Google Cloud Firestore",
+        databaseId: "ai-studio-zmessenger-34763b82-27cd-4a3f-9971-54aabd5646ba",
+        status: "online",
+        verified: snapshot.exists(),
+        stats: {
+          users: users.size,
+          groups: groups.size,
+          messages: messages.length,
+          stories: stories.size,
+        },
+      });
+    } catch (err: any) {
+      console.error("Firestore connectivity test error:", err);
+      res.status(500).json({
+        connected: false,
+        database: "Google Cloud Firestore",
+        error: err?.message || String(err),
+      });
+    }
   });
 
   // Local static file directory for uploaded chatbot files and attachments
