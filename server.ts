@@ -827,7 +827,9 @@ startxref
   await persistUserToFirestore(superadmin);
 }
 
-initializeServerData();
+initializeServerData().catch((err) => {
+  console.error("Failed in initializeServerData:", err);
+});
 
 // Real-time connections: SSE and native WebSocket
 const sseClients = new Map<string, express.Response[]>();
@@ -1251,19 +1253,37 @@ async function startServer() {
   });
 
   // User Login
-  app.post("/api/auth/login", (req, res) => {
+  app.post("/api/auth/login", async (req, res) => {
     try {
-      const { identifier, password } = req.body;
+      const { identifier, password } = req.body || {};
 
       if (!identifier || !password) {
         res.status(400).json({ error: "Please enter your email or username and password." });
         return;
       }
 
-      const cleanId = identifier.trim().toLowerCase().replace(/^@/, "");
+      const cleanId = String(identifier).trim().toLowerCase().replace(/^@/, "");
       let userId = userByEmail.get(cleanId);
       if (!userId) {
         userId = userByUsername.get(cleanId);
+      }
+
+      // If user wasn't in memory map, query Firestore users directly as fallback
+      if (!userId && firestoreDb) {
+        try {
+          const usersSnap = await getDocs(collection(firestoreDb, "users"));
+          usersSnap.forEach((d) => {
+            const u = d.data() as UserRecord;
+            if (u && u.id) {
+              users.set(u.id, u);
+              if (u.email) userByEmail.set(u.email.toLowerCase(), u.id);
+              if (u.username) userByUsername.set(u.username.toLowerCase(), u.id);
+            }
+          });
+          userId = userByEmail.get(cleanId) || userByUsername.get(cleanId);
+        } catch (fsErr) {
+          console.warn("Firestore lookup fallback error in /api/auth/login:", fsErr);
+        }
       }
 
       if (!userId) {
@@ -1294,6 +1314,7 @@ async function startServer() {
 
       res.json({ success: true, user: createSafeUser(user) });
     } catch (err: any) {
+      console.error("Error in /api/auth/login:", err);
       res.status(500).json({ error: err.message || "Login failed" });
     }
   });
@@ -4285,6 +4306,31 @@ OUTPUT FORMAT REQUIREMENTS:
         sseClients.delete(userId);
       }
     });
+  });
+
+  // -------------------------------------------------------------
+  // API 404 & ERROR HANDLING (Guarantees JSON, NEVER HTML for /api/*)
+  // -------------------------------------------------------------
+
+  // Fallback for any unhandled /api/* endpoint
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
+  });
+
+  // API error handler catching JSON parse errors, syntax errors, and uncaught API exceptions
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.path.startsWith("/api")) {
+      console.error("API error handler caught:", err);
+      if (res.headersSent) {
+        return next(err);
+      }
+      const statusCode = typeof err.status === "number" ? err.status : (typeof err.statusCode === "number" ? err.statusCode : 500);
+      res.status(statusCode).json({
+        error: err.message || "An unexpected server error occurred",
+      });
+      return;
+    }
+    next(err);
   });
 
   // -------------------------------------------------------------

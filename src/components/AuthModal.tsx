@@ -16,6 +16,24 @@ const DEFAULT_AVATARS = [
   "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80",
 ];
 
+// Helper to safely parse API responses and prevent "Unexpected token '<'" HTML error crashes
+async function parseResponseJson(resp: Response) {
+  const text = await resp.text();
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (_e) {
+    if (!resp.ok) {
+      if (resp.status === 502 || resp.status === 503 || resp.status === 504) {
+        throw new Error("Server is initializing. Please wait a few seconds and try again.");
+      }
+      throw new Error(`Server returned an error (${resp.status}). Please try again.`);
+    }
+    throw new Error("Unexpected server response. Please try again.");
+  }
+  return data;
+}
+
 export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   const [mode, setMode] = useState<"login" | "signup-step1" | "signup-step2">("login");
 
@@ -59,8 +77,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(`/api/auth/check-availability?username=${encodeURIComponent(clean)}`);
-        const data = await res.json();
-        if (data.usernameTaken) {
+        const data = await parseResponseJson(res);
+        if (data?.usernameTaken) {
           setUsernameStatus("taken");
           setUsernameError("This username already exists! Please choose another unique username.");
         } else {
@@ -95,9 +113,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         }),
       });
 
-      const data = await resp.json();
+      const data = await parseResponseJson(resp);
       if (!resp.ok) {
-        throw new Error(data.error || "Login failed");
+        throw new Error(data?.error || "Login failed. Please verify your credentials.");
       }
 
       onSuccess(data.user);
@@ -131,8 +149,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     try {
       // Check if email already taken
       const checkResp = await fetch(`/api/auth/check-availability?email=${encodeURIComponent(cleanEmail)}`);
-      const checkData = await checkResp.json();
-      if (checkData.emailTaken) {
+      const checkData = await parseResponseJson(checkResp);
+      if (checkData?.emailTaken) {
         throw new Error("An account with this email/gmail already exists. Please log in.");
       }
 
@@ -180,13 +198,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         }),
       });
 
-      const data = await resp.json();
+      const data = await parseResponseJson(resp);
       if (!resp.ok) {
-        if (resp.status === 409 && data.error?.toLowerCase().includes("username")) {
+        if (resp.status === 409 && data?.error?.toLowerCase().includes("username")) {
           setUsernameStatus("taken");
           setUsernameError("This username is already taken. Please choose another unique username.");
         }
-        throw new Error(data.error || "Registration failed");
+        throw new Error(data?.error || "Registration failed");
       }
 
       stopCamera();

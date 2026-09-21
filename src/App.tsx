@@ -91,8 +91,10 @@ export default function App() {
   const fetchStories = async (userId: string) => {
     try {
       const resp = await fetch(`/api/stories?userId=${userId}`);
-      const data = await resp.json();
-      if (data.stories) {
+      if (!resp.ok) return;
+      const text = await resp.text();
+      const data = text ? JSON.parse(text) : null;
+      if (data?.stories) {
         setStories(data.stories);
       }
     } catch (e) {
@@ -104,8 +106,10 @@ export default function App() {
   const fetchContacts = async (userId: string) => {
     try {
       const resp = await fetch(`/api/contacts?userId=${userId}`);
-      const data = await resp.json();
-      if (data.contacts) {
+      if (!resp.ok) return;
+      const text = await resp.text();
+      const data = text ? JSON.parse(text) : null;
+      if (data?.contacts) {
         setContacts(data.contacts);
       }
     } catch (e) {
@@ -382,8 +386,10 @@ export default function App() {
         const resp = await fetch(
           `/api/messages?userId=${currentUser.id}&contactId=${activeContact.id}`
         );
-        const data = await resp.json();
-        if (data.messages) {
+        if (!resp.ok) return;
+        const text = await resp.text();
+        const data = text ? JSON.parse(text) : null;
+        if (data?.messages) {
           setMessages(data.messages);
         }
       } catch (e) {
